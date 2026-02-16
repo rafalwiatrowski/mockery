@@ -1,6 +1,6 @@
 /**
  * Mockery - AI Page Builder
- * Main Application JavaScript
+ * Main Application JavaScript with Streaming & Patch Support
  */
 
 class MockeryApp {
@@ -11,7 +11,8 @@ class MockeryApp {
         this.chatHistory = [];
         this.isGenerating = false;
         this.pollInterval = null;
-        this.pollRate = 500; // Fast polling for instant updates
+        this.pollRate = 500;
+        this.usePatching = true; // Enable fast patching mode
 
         this.init();
     }
@@ -24,11 +25,8 @@ class MockeryApp {
     }
 
     cacheElements() {
-        // Selectors
         this.pageSelector = document.getElementById('page-selector');
         this.chatPageSelector = document.getElementById('chat-page-selector');
-
-        // Buttons
         this.newPageBtn = document.getElementById('new-page-btn');
         this.emptyNewPageBtn = document.getElementById('empty-new-page-btn');
         this.deletePageBtn = document.getElementById('delete-page-btn');
@@ -36,12 +34,8 @@ class MockeryApp {
         this.sendBtn = document.getElementById('send-btn');
         this.createPageBtn = document.getElementById('create-page-btn');
         this.cancelNewPage = document.getElementById('cancel-new-page');
-
-        // Icons
         this.chatIcon = document.getElementById('chat-icon');
         this.closeIcon = document.getElementById('close-icon');
-
-        // Panels & containers
         this.chatPanel = document.getElementById('chat-panel');
         this.chatMessages = document.getElementById('chat-messages');
         this.chatInput = document.getElementById('chat-input');
@@ -50,38 +44,29 @@ class MockeryApp {
         this.emptyState = document.getElementById('empty-state');
         this.newPageModal = document.getElementById('new-page-modal');
         this.newPageName = document.getElementById('new-page-name');
-
-        // Version indicator
         this.versionText = document.getElementById('version-text');
         this.syncIndicator = document.getElementById('sync-indicator');
     }
 
     bindEvents() {
-        // Chat toggle
         this.chatToggle.addEventListener('click', () => this.toggleChat());
 
-        // Page selectors
         this.pageSelector.addEventListener('change', (e) => this.selectPage(e.target.value));
         this.chatPageSelector.addEventListener('change', (e) => {
             this.pageSelector.value = e.target.value;
             this.selectPage(e.target.value);
         });
 
-        // New page buttons
         this.newPageBtn.addEventListener('click', () => this.showNewPageModal());
         this.emptyNewPageBtn.addEventListener('click', () => this.showNewPageModal());
-
-        // Delete page
         this.deletePageBtn.addEventListener('click', () => this.deletePage());
 
-        // Modal
         this.createPageBtn.addEventListener('click', () => this.createPage());
         this.cancelNewPage.addEventListener('click', () => this.hideNewPageModal());
         this.newPageModal.addEventListener('click', (e) => {
             if (e.target === this.newPageModal) this.hideNewPageModal();
         });
 
-        // Chat input
         this.chatInput.addEventListener('input', () => this.handleInputChange());
         this.chatInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -90,18 +75,14 @@ class MockeryApp {
             }
         });
 
-        // Send button
         this.sendBtn.addEventListener('click', () => this.sendMessage());
 
-        // Auto-resize textarea
         this.chatInput.addEventListener('input', () => {
             this.chatInput.style.height = 'auto';
             this.chatInput.style.height = Math.min(this.chatInput.scrollHeight, 120) + 'px';
         });
 
-        // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            // Escape to close chat
             if (e.key === 'Escape' && this.chatPanel.classList.contains('flex')) {
                 this.toggleChat();
             }
@@ -119,7 +100,6 @@ class MockeryApp {
                 this.pages = data.pages;
                 this.updatePageSelectors();
 
-                // Auto-select first page if available
                 if (this.pages.length > 0 && !this.currentPage) {
                     this.selectPage(this.pages[0].name);
                 }
@@ -168,14 +148,12 @@ class MockeryApp {
             const timestamp = Date.now();
             const url = `pages/${this.currentPage}.html?t=${timestamp}`;
 
-            // Use srcdoc for faster updates instead of src
             const response = await fetch(url);
             if (response.ok) {
                 const html = await response.text();
                 this.previewFrame.srcdoc = html;
                 this.previewFrame.classList.remove('hidden');
 
-                // Update version
                 const version = response.headers.get('Last-Modified') || new Date().toISOString();
                 this.updateVersion(version);
             }
@@ -229,8 +207,6 @@ class MockeryApp {
                 this.hideNewPageModal();
                 await this.loadPages();
                 this.selectPage(name);
-
-                // Add welcome message for new page
                 this.addMessage('assistant', `Strona "${name}" została utworzona! Opisz mi jak ma wyglądać.`);
             } else {
                 alert(data.error || 'Nie udało się utworzyć strony');
@@ -294,7 +270,7 @@ class MockeryApp {
         this.sendBtn.disabled = !hasText || !hasPage || this.isGenerating;
     }
 
-    addMessage(role, content) {
+    addMessage(role, content, isStreaming = false) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'flex gap-3 message-enter';
 
@@ -316,7 +292,7 @@ class MockeryApp {
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                     </svg>
                 </div>
-                <div class="flex-1 bg-fluent-bg-secondary rounded-lg p-3 text-sm text-fluent-text-primary">
+                <div class="flex-1 bg-fluent-bg-secondary rounded-lg p-3 text-sm text-fluent-text-primary ${isStreaming ? 'streaming-message' : ''}">
                     ${this.escapeHtml(content)}
                 </div>
             `;
@@ -325,8 +301,19 @@ class MockeryApp {
         this.chatMessages.appendChild(messageDiv);
         this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
 
-        // Store in history
-        this.chatHistory.push({ role, content });
+        if (!isStreaming) {
+            this.chatHistory.push({ role, content });
+        }
+
+        return messageDiv;
+    }
+
+    updateStreamingMessage(messageDiv, content) {
+        const contentDiv = messageDiv.querySelector('.bg-fluent-bg-secondary');
+        if (contentDiv) {
+            contentDiv.innerHTML = this.escapeHtml(content);
+        }
+        this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
     }
 
     escapeHtml(text) {
@@ -348,17 +335,254 @@ class MockeryApp {
         const message = this.chatInput.value.trim();
         if (!message || !this.currentPage || this.isGenerating) return;
 
-        // Add user message
         this.addMessage('user', message);
         this.chatInput.value = '';
         this.chatInput.style.height = 'auto';
         this.handleInputChange();
 
-        // Show typing indicator
         this.isGenerating = true;
         this.showTypingIndicator();
         this.sendBtn.disabled = true;
 
+        if (this.usePatching) {
+            await this.sendMessageWithStreaming(message);
+        } else {
+            await this.sendMessageLegacy(message);
+        }
+    }
+
+    /**
+     * Send message using streaming SSE with patch support
+     */
+    async sendMessageWithStreaming(message) {
+        const statusDiv = this.addMessage('assistant', 'Analizuję...', true);
+        let streamingContent = '';
+
+        try {
+            const response = await fetch('api/patch.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    page: this.currentPage,
+                    message: message,
+                    history: this.chatHistory.slice(-10)
+                })
+            });
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop(); // Keep incomplete line in buffer
+
+                for (const line of lines) {
+                    if (line.startsWith('event: ')) {
+                        const eventType = line.slice(7);
+                        continue;
+                    }
+                    if (line.startsWith('data: ')) {
+                        const data = JSON.parse(line.slice(6));
+                        await this.handleSSEEvent(data, statusDiv);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('Streaming error:', error);
+            this.updateStreamingMessage(statusDiv, 'Przepraszam, wystąpił błąd. Spróbuj ponownie.');
+        } finally {
+            this.isGenerating = false;
+            this.hideTypingIndicator();
+            this.handleInputChange();
+        }
+    }
+
+    /**
+     * Handle SSE events from patch.php
+     */
+    async handleSSEEvent(data, statusDiv) {
+        // Status events
+        if (data.status) {
+            this.updateStreamingMessage(statusDiv, data.message || data.status);
+            return;
+        }
+
+        // Error events
+        if (data.error) {
+            this.updateStreamingMessage(statusDiv, `Błąd: ${data.error}`);
+            return;
+        }
+
+        // Patch events - apply DOM changes
+        if (data.patches) {
+            await this.applyPatches(data.patches);
+            const summary = data.summary || 'Zmiany wprowadzone!';
+            this.updateStreamingMessage(statusDiv, summary);
+            this.chatHistory.push({ role: 'assistant', content: summary });
+            this.flashSyncIndicator();
+
+            if (data.version) {
+                this.currentVersion = data.version;
+            }
+            return;
+        }
+
+        // Full HTML update
+        if (data.html) {
+            this.previewFrame.srcdoc = data.html;
+            this.updateStreamingMessage(statusDiv, 'Strona została zaktualizowana!');
+            this.chatHistory.push({ role: 'assistant', content: 'Strona została zaktualizowana!' });
+            this.flashSyncIndicator();
+
+            if (data.version) {
+                this.currentVersion = data.version;
+            }
+            return;
+        }
+
+        // Progress events (streaming chunks)
+        if (data.chunk) {
+            // Could show streaming text here if needed
+            return;
+        }
+
+        // Done event
+        if (data.success !== undefined) {
+            return;
+        }
+    }
+
+    /**
+     * Apply patches to the iframe DOM
+     */
+    async applyPatches(patches) {
+        const iframeDoc = this.previewFrame.contentDocument || this.previewFrame.contentWindow.document;
+
+        for (const patch of patches) {
+            try {
+                const elements = iframeDoc.querySelectorAll(patch.selector);
+
+                if (elements.length === 0) {
+                    console.warn(`Selector not found: ${patch.selector}`);
+                    continue;
+                }
+
+                for (const element of elements) {
+                    switch (patch.action) {
+                        case 'replace':
+                            element.innerHTML = patch.content;
+                            this.highlightElement(element);
+                            break;
+
+                        case 'insert':
+                            const newEl = document.createElement('div');
+                            newEl.innerHTML = patch.content;
+                            const insertEl = newEl.firstElementChild || newEl;
+
+                            switch (patch.position) {
+                                case 'before':
+                                    element.parentNode.insertBefore(insertEl, element);
+                                    break;
+                                case 'after':
+                                    element.parentNode.insertBefore(insertEl, element.nextSibling);
+                                    break;
+                                case 'prepend':
+                                    element.insertBefore(insertEl, element.firstChild);
+                                    break;
+                                case 'append':
+                                default:
+                                    element.appendChild(insertEl);
+                                    break;
+                            }
+                            this.highlightElement(insertEl);
+                            break;
+
+                        case 'remove':
+                            element.style.transition = 'opacity 0.3s, transform 0.3s';
+                            element.style.opacity = '0';
+                            element.style.transform = 'scale(0.9)';
+                            setTimeout(() => element.remove(), 300);
+                            break;
+
+                        case 'setAttribute':
+                            element.setAttribute(patch.attribute, patch.value);
+                            this.highlightElement(element);
+                            break;
+
+                        case 'addClass':
+                            element.classList.add(patch.class);
+                            this.highlightElement(element);
+                            break;
+
+                        case 'removeClass':
+                            element.classList.remove(patch.class);
+                            this.highlightElement(element);
+                            break;
+
+                        case 'setStyle':
+                            element.style[patch.attribute] = patch.value;
+                            this.highlightElement(element);
+                            break;
+                    }
+                }
+            } catch (error) {
+                console.error(`Failed to apply patch:`, patch, error);
+            }
+        }
+
+        // Save the updated HTML back to server
+        await this.saveCurrentHtml(iframeDoc);
+    }
+
+    /**
+     * Highlight element after change (visual feedback)
+     */
+    highlightElement(element) {
+        if (!element || !element.style) return;
+
+        const originalTransition = element.style.transition;
+        const originalBoxShadow = element.style.boxShadow;
+
+        element.style.transition = 'box-shadow 0.3s ease-out';
+        element.style.boxShadow = '0 0 0 3px rgba(0, 120, 212, 0.5)';
+
+        setTimeout(() => {
+            element.style.boxShadow = originalBoxShadow;
+            setTimeout(() => {
+                element.style.transition = originalTransition;
+            }, 300);
+        }, 500);
+    }
+
+    /**
+     * Save current iframe HTML back to server
+     */
+    async saveCurrentHtml(iframeDoc) {
+        const html = '<!DOCTYPE html>\n' + iframeDoc.documentElement.outerHTML;
+
+        try {
+            await fetch('api/save.php', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    page: this.currentPage,
+                    html: html
+                })
+            });
+        } catch (error) {
+            console.error('Failed to save HTML:', error);
+        }
+    }
+
+    /**
+     * Legacy non-streaming message send
+     */
+    async sendMessageLegacy(message) {
         try {
             const response = await fetch('api/generate.php', {
                 method: 'POST',
@@ -366,7 +590,7 @@ class MockeryApp {
                 body: JSON.stringify({
                     page: this.currentPage,
                     message: message,
-                    history: this.chatHistory.slice(-10) // Last 10 messages for context
+                    history: this.chatHistory.slice(-10)
                 })
             });
 
@@ -374,11 +598,7 @@ class MockeryApp {
 
             if (data.success) {
                 this.addMessage('assistant', data.message || 'Zmiany zostały wprowadzone!');
-
-                // Immediately reload content
                 await this.loadPageContent();
-
-                // Flash sync indicator
                 this.flashSyncIndicator();
             } else {
                 this.addMessage('assistant', `Błąd: ${data.error || 'Nie udało się wygenerować zmian'}`);
@@ -411,7 +631,6 @@ class MockeryApp {
     }
 
     startPolling() {
-        // Poll for changes
         this.pollInterval = setInterval(() => this.checkForUpdates(), this.pollRate);
     }
 
